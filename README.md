@@ -87,10 +87,12 @@ Estimates, not financial advice. Pull-rate and pack-price inputs are rough and t
 fun and learning. Card data via pokemontcg.io; design language adapted from Miro. Not affiliated
 with Nintendo / The Pokémon Company / Collectrics.
 
-- **The Track Record backtest is exploratory.** Its gates, price floor and feature set were
-  chosen after looking at the same price history it reports, so its numbers are likely
-  optimistic. Its "surfaced" figure applies only the mid-price gate, not the chase-premium gate
-  the live site also uses. It is run by hand, not by the daily refresh.
+- **The Track Record backtest separates in-sample from out-of-sample.** The model's features,
+  gates and price floor were chosen on the price history up to 2026-06-11, so those numbers are
+  likely optimistic; later weeks, from the site's own daily prices, are reported separately but
+  are only a few overlapping months. Trades buy a week after the signal, the popularity input
+  uses only the 2020 poll (no hand-pinned overrides), and naive baselines are scored alongside.
+  It is run by hand (`python -m pipeline.backtest`), not by the daily refresh.
 - **Pull rates are estimates, not official odds.** Most come from community pack-opening
   samples, but some tiers are still rough estimates or placeholders (marked in the comments in
   `pipeline/pullrates.py`), so sealed EV is approximate.

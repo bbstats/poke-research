@@ -1616,6 +1616,8 @@ function trHeadlineCard(title, c, verdict) {
     el('div', { style: 'font-size:40px;font-weight:700;line-height:1.1;margin:6px 0;color:' + tone, text: trIc(c.ic) }),
     el('div', { class: 'caption', text: 'rank IC · 28-day' }),
     el('div', { class: 'micro', style: 'margin-top:8px', text: 'HAC t = ' + (c.nw_t == null ? '—' : c.nw_t) + ' · ' + c.sign_pos + '/' + c.n_dates + ' weeks positive' }),
+    c.oos ? el('div', { class: 'micro', style: 'margin-top:4px', text: 'Out of sample: IC ' + trIc(c.oos.ic) + ' · ' + c.oos.sign_pos + '/' + c.oos.n_dates + ' weeks positive' })
+          : el('div', { class: 'micro', style: 'margin-top:4px', text: 'Out of sample: not enough data yet' }),
     el('div', { style: 'margin-top:10px;font-weight:700;color:' + tone, text: verdict }),
     el('p', { class: 'caption', style: 'margin-top:8px', text: c.note || '' }),
   ]);
@@ -1654,31 +1656,50 @@ function viewTrackRecord() {
   }
   const p = bt.panel, h = bt.headline, hr = bt.hit_rates || {}, dec = bt.decile || {};
 
-  /* The backtest's "surfaced" gate is only the mature $20 to $100 dead zone. The
-     live site also hides mature chase-premium cards (build._edge), which this
-     backtest does not replicate yet, so do not present it as what users see. */
-  const surfacedNote = 'Fresh cards (35 days or younger) plus cards priced outside the mature $20 to $100 zone. ' +
-    'The live site also hides mature chase-premium cards; this backtest does not apply that gate yet, so it does not exactly match what the site shows.';
-  /* Keep the fresh-release card as modest as the exploratory caveat above it
-     (Codex verification, follow-up 3); backtest.json's own note says "most real signal". */
-  const freshNote = 'Cards 35 days old or younger: the strongest segment in this exploratory replay' +
+  const freshNote = 'Cards 35 days old or younger' +
     ((h.fresh_release && h.fresh_release.mean_fwd_return != null)
-      ? `, with an average ${p.primary_horizon_days}-day return of ${signedPct(h.fresh_release.mean_fwd_return, 0)}.` : '.');
+      ? `, average ${p.primary_horizon_days}-day return ${signedPct(h.fresh_release.mean_fwd_return, 0)}.` : '.');
   const heads = el('div', { style: 'display:flex;flex-wrap:wrap;gap:14px;margin-top:6px' }, [
-    h.surfaced ? trHeadlineCard('Gated cards (mid-price gate only)', Object.assign({}, h.surfaced, { note: surfacedNote }), 'Exploratory') : null,
-    h.fresh_release ? trHeadlineCard('Fresh releases (≤35 days old)', Object.assign({}, h.fresh_release, { note: freshNote }), 'Strongest historical segment') : null,
+    h.fresh_release ? trHeadlineCard('Fresh releases (≤35 days old)', Object.assign({}, h.fresh_release, { note: freshNote }), 'Real, but ~a dozen releases') : null,
     h.all_cards ? trHeadlineCard('All cards ($2+)', h.all_cards, 'Modest') : null,
-    h.mature_liquid ? trHeadlineCard('Mature & liquid (>90d, >$10)', h.mature_liquid, '≈ no edge') : null,
+    h.mature_liquid ? trHeadlineCard('Mature & liquid (>90d, $10+)', h.mature_liquid, 'No edge') : null,
   ]);
 
-  const freshPct = (h.fresh_release && h.fresh_release.mean_fwd_return != null)
-    ? Math.round(Math.abs(h.fresh_release.mean_fwd_return) * 100) + '%' : '~10%';
+  const fr = bt.fresh_by_release || {}, frs = fr.summary_in_sample || {};
   const verdict = el('div', { style: 'background:var(--surface-soft,#F7F7FB);border-radius:16px;padding:18px 20px;margin-top:18px' }, [
     el('p', { class: 'h3', style: 'margin:0 0 6px', text: 'What this replay suggests' }),
     el('p', { class: 'section-sub', style: 'margin:0', html:
-      'In this exploratory replay, the clearest result was on <strong>freshly released cards</strong>: they fell about <strong>' + freshPct +
-      '</strong> in their first month on average, and ranking which would fall hardest was the model’s strongest historical segment. On established, liquid cards it showed little measurable edge, so treat it as a value gauge, not a crystal ball. None of this has been confirmed yet on data the rules never saw.' }),
+      'The model’s one clear skill is ranking <strong>freshly released cards</strong>: within a new set it picked which cards would fall hardest in <strong>' +
+      (frs.model_ic_positive != null ? frs.model_ic_positive + ' of ' + frs.n_releases : 'most') + '</strong> releases, and new-set cards fell in ' +
+      (frs.median_return_negative != null ? frs.median_return_negative + ' of ' + frs.n_releases : 'most') +
+      ' of them. A naive “cheapest in its rarity group” rule gets most of the way there. On established cards the model has <strong>no edge</strong>; ' +
+      'there, what predicted the next month was the <strong>set</strong> (older sets, and sets already rising), not the individual card. See the signal table below.' }),
   ]);
+
+  const SIG = bt.signals || {};
+  const findB = (sig, seg) => (bt.baselines || []).find((b) => b.signal === sig && b.segment === seg) || {};
+  const cellIc = (st) => st ? icCell(st.ic) : '—';
+  const cellPos = (st) => st ? st.sign_pos + '/' + st.n_dates : '—';
+  const cellIn = (st) => (st && st.ic_within_set != null) ? icCell(st.ic_within_set) : '—';
+  const sigTables = ['fresh', 'mature_liquid', 'mature_high'].map((seg) => trMiniTable(
+    'What predicted the next ' + p.primary_horizon_days + ' days — ' + ((bt.segments || {})[seg] || seg),
+    ['Signal', 'IC (in-sample)', 'Within set', 'IC (out of sample)', 'Weeks +'],
+    Object.keys(SIG).filter((k) => findB(k, seg).in_sample || findB(k, seg).oos).map((k) => {
+      const b = findB(k, seg);
+      return [SIG[k], cellIc(b.in_sample), cellIn(b.in_sample), cellIc(b.oos), cellPos(b.oos)];
+    })));
+
+  const relTable = trMiniTable('Fresh releases, one row per set (first ' + 35 + ' days)',
+    ['Set', 'Released', 'Model IC', 'Naive IC', 'Median return'],
+    (fr.in_sample || []).concat(fr.oos || []).map((r) => [r.set_name, r.release_date,
+      r.model_ic == null ? '—' : icCell(r.model_ic), r.cheap_ic == null ? '—' : icCell(r.cheap_ic),
+      signedPct(r.median_return, 0)]));
+
+  const lv = bt.live;
+  const liveNote = lv ? el('p', { class: 'caption', style: 'margin-top:14px', html:
+    '<strong>Live track record</strong> (the calls this site actually published, ' + lv.first_date + ' → ' + lv.last_date + ', ' + lv.n_dates + ' weekly cuts): all cards IC ' +
+    trIc((lv.segments.all || {}).ic) + ', mature $10+ IC ' + trIc((lv.segments.mature_liquid || {}).ic) + ', mature $100+ IC ' + trIc((lv.segments.mature_high || {}).ic) +
+    '. Only a couple of independent months, so indicative only.' }) : null;
 
   const ageTable = trMiniTable('Edge by card age (since release)',
     ['Age bucket', 'IC', 'Avg 28d return', 'Obs'],
@@ -1708,11 +1729,14 @@ function viewTrackRecord() {
       el('span', { class: 'chip chip--lavender', text: p.n_dates + ' weeks · ' + p.primary_horizon_days + 'd horizon' }),
     ]),
     el('p', { class: 'stale-note', style: 'margin:6px 0 14px', text:
-      'Exploratory, not a confirmed result. The gates, price floor and model features were chosen after looking at this same price history, ' +
-      'so these numbers are likely optimistic; a clean test needs a later period the rules never saw. ' +
-      `The backtest runs by hand, not in the daily refresh, and covers data up to ${p.last_date}.` }),
+      `Each call is bought ${p.skip_days} days after the signal, and the model uses only popularity data that existed at the time. ` +
+      `“In-sample” is the history the model and its rules were tuned on (to ${p.last_history_date}); “out of sample” is later data from this site’s own daily prices ` +
+      `(${p.n_oos} overlapping weeks, so treat it as indicative). The backtest runs by hand, not in the daily refresh.` }),
     heads,
     verdict,
+    el('div', { style: 'margin-top:20px;display:grid;gap:20px' }, sigTables),
+    el('div', { style: 'margin-top:20px' }, relTable),
+    liveNote,
     el('div', { class: 'lab-grid', style: 'margin-top:20px' }, [ageTable, floorTable]),
     el('div', { style: 'margin-top:20px' }, rarTable),
     el('div', { style: 'margin-top:20px' }, [

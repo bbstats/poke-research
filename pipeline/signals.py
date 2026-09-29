@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Optional
 
 import numpy as np
@@ -213,7 +213,13 @@ def _charprem_percentile_table(values_by_name: Dict[str, float]) -> Dict[str, fl
     return out
 
 
-def char_premium_table(cards: List[dict]) -> Dict[str, float]:
+# A card counts toward the structural popularity signal once it is within this
+# many days of release (presale listings appear ~1-3 weeks early).
+_PRESALE_WINDOW_DAYS = 21
+
+
+def char_premium_table(cards: List[dict], as_of: Optional[date] = None,
+                       backtest_safe: bool = False) -> Dict[str, float]:
     """Per-character popularity premium on a 0-10 scale, keyed by base_name.
 
     De-skewed and now FULLY PRICE-INDEPENDENT: the score is the INDEPENDENT,
@@ -240,14 +246,28 @@ def char_premium_table(cards: List[dict]) -> Dict[str, float]:
 
     The 70/30 blend is mapped through one final clean percentile to a ~uniform
     0-10 distribution (mean ~5).
+
+    ``as_of`` drops cards released more than _PRESALE_WINDOW_DAYS after that
+    date, so printing / chase counts only use sets that existed then.
+    ``backtest_safe`` uses the poll-only prior and skips the Kanto tilt (tuned on
+    the same price history the backtest grades).
     """
+    counted = cards
+    if as_of is not None:
+        horizon = as_of + timedelta(days=_PRESALE_WINDOW_DAYS)
+        counted = [c for c in cards
+                   if (rel := _parse_date(c.get("release_date"))) is None or rel <= horizon]
     n_printings: Dict[str, int] = defaultdict(int)
     sets_of: Dict[str, set] = defaultdict(set)
     chase_raw: Dict[str, float] = defaultdict(float)   # rarity-weighted intensity
     prices_of: Dict[str, list] = defaultdict(list)     # priced printings per char
     is_kanto: Dict[str, bool] = defaultdict(bool)      # any printing with a Kanto dex#
 
+    # Every character still gets a premium; only cards released by as_of count.
     for c in cards:
+        if c.get("base_name"):
+            n_printings[c["base_name"]] += 0
+    for c in counted:
         name = c.get("base_name")
         if not name:
             continue
@@ -306,14 +326,14 @@ def char_premium_table(cards: List[dict]) -> Dict[str, float]:
     # newcomer (whose fame the in-set structural signal can't reliably gauge).
     premium: Dict[str, float] = {}
     for nm in all_names:
-        prior, _src = popularity.popularity_prior(nm)
+        prior, _src = popularity.popularity_prior(nm, backtest_safe=backtest_safe)
         if prior is not None:
             base = prior
         else:
             base = structural[nm] / 10.0 * popularity.POLL_FLOOR
         # Kanto nostalgia tilt: additive, ranking-preserving, never lowers a
         # character, capped below the reserved-10.0 icon tier.
-        if is_kanto.get(nm) and base < _KANTO_PREMIUM_CAP:
+        if not backtest_safe and is_kanto.get(nm) and base < _KANTO_PREMIUM_CAP:
             base = min(_KANTO_PREMIUM_CAP, base + _KANTO_PREMIUM_BONUS)
         premium[nm] = round(base, 4)
     return premium
@@ -395,7 +415,7 @@ def universal_appeal_stub(card: dict) -> float:
 # Orchestration
 # ---------------------------------------------------------------------------
 def compute_features(
-    cards: Iterable[dict], today: Optional[date] = None
+    cards: Iterable[dict], today: Optional[date] = None, backtest_safe: bool = False
 ) -> Dict[str, Dict[str, float]]:
     """Compute the live + stub feature table for every card.
 
@@ -406,10 +426,10 @@ def compute_features(
     NOTE: ``pull_cost`` is deliberately omitted — it depends on
     ``pipeline/pullrates.py`` and is merged in by ``build.py`` via
     :func:`inject_pull_cost`. ``today`` is threaded through so months_since_release
-    is reproducible.
+    is reproducible. ``backtest_safe`` is passed to :func:`char_premium_table`.
     """
     cards = list(cards)
-    char_prem = char_premium_table(cards)
+    char_prem = char_premium_table(cards, as_of=today, backtest_safe=backtest_safe)
     set_ranks = set_rank_table(cards)
 
     features: Dict[str, Dict[str, float]] = {}

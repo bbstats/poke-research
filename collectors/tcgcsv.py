@@ -301,14 +301,22 @@ def _pick_subtype_name(card: Mapping) -> str:
     return _SUBTYPE_BY_KEY.get(key, "Holofoil")
 
 
-def _price_from_rows(rows: Iterable[Mapping], productId: int, subtype: str) -> Optional[float]:
-    """Pick a marketPrice for ``productId`` preferring ``subtype`` then fallbacks."""
+def _price_from_rows(rows: Iterable[Mapping], productId: int, subtype: str,
+                     fallbacks: Optional[List[int]] = None) -> Optional[float]:
+    """Pick a marketPrice for ``productId`` preferring ``subtype`` then fallbacks.
+
+    A fallback prices a DIFFERENT printing (e.g. holo instead of reverse holo), so
+    the card's series can jump that day. When ``fallbacks`` is given, the
+    productId is appended to it each time that happens so callers can report it.
+    """
     avail = {r.get("subTypeName"): r.get("marketPrice")
              for r in rows if r.get("productId") == productId and r.get("marketPrice") is not None}
     if not avail:
         return None
     if subtype in avail:
         return float(avail[subtype])
+    if fallbacks is not None:
+        fallbacks.append(productId)
     for st in _SUBTYPE_FALLBACK:
         if st in avail:
             return float(avail[st])
@@ -376,10 +384,14 @@ def prices_for_date(d: date, idmap: Mapping[str, dict],
     # flatten all rows once, index by productId for fast lookup
     all_rows: List[dict] = [r for rows in rows_by_group.values() for r in rows]
     out: Dict[str, float] = {}
+    fallbacks: List[int] = []
     for cid, m in idmap.items():
-        price = _price_from_rows(all_rows, m["productId"], m.get("subtype", "Holofoil"))
+        price = _price_from_rows(all_rows, m["productId"], m.get("subtype", "Holofoil"), fallbacks)
         if price is not None:
             out[cid] = round(price, 2)
+    if fallbacks:
+        log.warning("%s: %d card(s) priced from a different variant (preferred subtype missing)",
+                    d, len(fallbacks))
 
     # cleanup extracted temp tree
     try:

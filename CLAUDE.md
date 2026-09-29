@@ -101,7 +101,33 @@ Deploy = commit + push to `main`; **Netlify** rebuilds and swaps in ~1 min
   (the Track Record page). build.py also writes `pred-<date>.json` each run for
   forward self-grading.
 
-## Backtest / Track Record — what it found (honest)
+## Backtest / Track Record — 2026-09-29 re-evaluation (supersedes the numbers below)
+
+`pipeline/backtest.py` was rebuilt. It now buys 7 days after the signal (`SKIP_DAYS`),
+refits with backtest-safe features (2020 poll only: no `USER_OVERRIDES`, no Wikipedia,
+no Kanto tilt), scores naive baselines alongside the model (cheapest-in-group,
+4w/8w momentum, age), reports within-set IC, a per-release table for fresh cards, an
+out-of-sample block (`OOS_START = 2026-06-12`, from the daily `snapshot-*` prices,
+stale carried sets dropped), and grades the published `pred-*` calls (`grade_live`).
+Regression bridge: live features + skip 0 reproduce the old 0.110 / 0.263 / -0.039.
+
+What it shows (28d horizon, in-sample → out-of-sample):
+- **Fresh releases** are the model's only card-level skill: within-set IC +0.23, positive
+  in 12 of 13 releases. A naive "cheapest in its rarity group" rule gets +0.19.
+  New-set cards fell in 9 of 13 releases.
+- **Mature $10+**: the model is about zero or negative (−0.056 in-sample). Momentum
+  (+0.10 → +0.11) and set age (+0.25 → +0.17) predict, but their within-set IC is ~0:
+  it is a SET-level effect (older, already-rising sets keep rising), not a card-level one.
+- **Mature $100+ out of sample**: the model's calls were wrong in 0 of 10 weeks (IC −0.10;
+  the live-site version −0.24). It calls chase cards in appreciating sets "overvalued".
+- The old "+0.134 surfaced" headline was in-sample; the gates were tuned on that history.
+- The out-of-sample block is only 10 overlapping weeks (~2 independent months), so
+  HAC t is withheld there. Don't treat it as proof.
+Next (P2): "wait to buy" decay curve for fresh cards, set-level trend signal for mature
+cards, fair value as an explainer only. The ridge itself is not the bottleneck; its
+target (price level) is.
+
+## Backtest / Track Record — what it found (original, in-sample; superseded above)
 
 The model's edge is **real but specific** (28-day horizon, HAC t). Current
 formula (rarity-ordinal set_rank + Kanto tilt):

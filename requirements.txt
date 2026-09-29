@@ -2,3 +2,4 @@
 #   python -m venv .venv && ./.venv/bin/python -m pip install -r requirements.txt
 numpy        # clustered ridge model + backtest stats
 py7zr        # extract TCGCSV .ppmd.7z daily price archives (collectors/tcgcsv.py)
+pytest       # tests/ (run: python -m pytest -q tests)

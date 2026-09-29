@@ -200,6 +200,18 @@ def _record_price_status(sets_live: list[str]) -> dict:
     return status
 
 
+def snapshot_prices(cards: list[dict], carried_sets: list[str]) -> dict:
+    """Today's ``{card_id: market_price}``, leaving out sets carried from cache.
+
+    A carried set's prices are from an earlier day; writing them into today's
+    snapshot made stale prices look fresh to price_move, price_history and the
+    backtest.
+    """
+    carried = set(carried_sets)
+    return {c["id"]: c["market_price"] for c in cards
+            if c["market_price"] is not None and c.get("set_id") not in carried}
+
+
 def main() -> None:
     all_cards: list[dict] = []
     set_records: list[dict] = []
@@ -276,8 +288,9 @@ def main() -> None:
     (config.NORMALIZED / "cards.json").write_text(json.dumps(all_cards, indent=1))
     (config.NORMALIZED / "sets.json").write_text(json.dumps(set_records, indent=1))
 
-    # Seed a price snapshot for today (history for trends / movers / demand).
-    snap = {c["id"]: c["market_price"] for c in all_cards if c["market_price"] is not None}
+    # Seed a price snapshot for today (history for trends / movers / demand / the
+    # backtest's out-of-sample prices).
+    snap = snapshot_prices(all_cards, failed_sets)
     (config.SNAPSHOTS / f"snapshot-{date.today().isoformat()}.json").write_text(json.dumps(snap))
 
     # Only after the data above is written: advance prices_as_of if every set

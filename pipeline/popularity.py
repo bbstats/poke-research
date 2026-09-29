@@ -400,16 +400,27 @@ def _variant_keys(base_name: str):
         yield " ".join(parts[:-1])
 
 
-def popularity_prior(base_name: str) -> Tuple[Optional[float], Optional[str]]:
+def popularity_prior(base_name: str,
+                     backtest_safe: bool = False) -> Tuple[Optional[float], Optional[str]]:
     """Return (score, source) for a character, or (None, None) if not anchored.
 
     source is 'user' (hand-pinned override, wins), 'wiki' (mainstream Wikipedia
     traffic), or 'poll' (2020 fan poll). Mega/form variants inherit the base
     Pokemon. (None, None) -> caller falls back to the structural signal.
+
+    ``backtest_safe=True`` uses the 2020 poll ONLY. USER_OVERRIDES were pinned
+    after looking at current prices (review_premium) and the Wikipedia views
+    cover 2025-06..2026-05, so both leak the future into historical backtest
+    dates. The 2020 poll predates the whole price history.
     """
     if not base_name:
         return None, None
     keys = list(_variant_keys(base_name))
+    if backtest_safe:
+        for k in keys:
+            if k in POLL_SCORE:
+                return POLL_SCORE[k], "poll"
+        return None, None
     for k in keys:
         if k in USER_OVERRIDES:
             return USER_OVERRIDES[k], "user"
